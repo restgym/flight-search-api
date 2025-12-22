@@ -18,7 +18,7 @@ RUN apt-get update && \
         python3-pip \
         gnupg \
         ca-certificates && \
-    pip3 install mitmproxy && \
+    pip3 install mitmproxy requests && \
     curl -fsSL https://www.mongodb.org/static/pgp/server-6.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-6.0.gpg && \
     echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list && \
     apt-get update && \
@@ -91,7 +91,7 @@ for i in {1..60}; do\n\
 done\n\
 \n\
 echo "Starting mitmproxy..."\n\
-mitmdump -p 9090 --mode reverse:http://localhost:8080/ -s /infrastructure/mitmproxy/store-interactions.py > /results/$API/$TOOL/$RUN/logs/mitmproxy.log 2>&1 &\n\
+mitmdump -p 9090 --mode reverse:http://localhost:8080/ -s /infrastructure/mitmproxy/store-interactions.py -s /api/auth.py &\n\
 MITM_PID=$!\n\
 \n\
 echo "Waiting for mitmproxy to start..."\n\
