@@ -67,7 +67,7 @@ java -javaagent:/infrastructure/jacoco/org.jacoco.agent-0.8.12-runtime.jar=inclu
     -Dspring.data.mongodb.host=localhost \\\n\
     -Dspring.data.mongodb.port=27017 \\\n\
     -Dspring.data.mongodb.database=flightdatabase \\\n\
-    -jar /api/flightsearchapi.jar > /results/$API/$TOOL/$RUN/logs/api-stdout.log 2>&1 &\n\
+    -jar /api/flightsearchapi.jar &\n\
 API_PID=$!\n\
 \n\
 echo "Waiting for API to start..."\n\
