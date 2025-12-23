@@ -27,22 +27,15 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 1. Copia dei file dell'API
 COPY ./apis/flight-search/ /api/
 
-# 2. Copia selettiva di infrastructure (Solo file necessari per Java 21 / JaCoCo 0.8.12)
-
-# Copia lo script di collection specifico per la 0.8.12 rinominandolo come richiesto
 COPY ./infrastructure/jacoco/collect-coverage_0-8-12.sh /infrastructure/jacoco/collect-coverage.sh
 
-# Copia lo script che gestisce l'intervallo (usato nell'entrypoint)
 COPY ./infrastructure/jacoco/collect-coverage-interval.sh /infrastructure/jacoco/collect-coverage-interval.sh
 
-# Copia i JAR della versione 0.8.12 (Agente e CLI)
 COPY ./infrastructure/jacoco/org.jacoco.agent-0.8.12-runtime.jar /infrastructure/jacoco/
 COPY ./infrastructure/jacoco/org.jacoco.cli-0.8.12-nodeps.jar /infrastructure/jacoco/
 
-# Copia lo script mitmproxy
 COPY ./infrastructure/mitmproxy/ /infrastructure/mitmproxy/
 EXPOSE 9090 12345 8080 27017
 
