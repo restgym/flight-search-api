@@ -1,0 +1,19 @@
+# RESTgym API manifest
+manifest_version: 1
+
+id: flight-search
+name: Flight Search API
+version: "0.0.1-SNAPSHOT"         # Implementation-Version of flightsearchapi.jar
+description: Flight search API with management of airports and flights, secured with JWT.
+domain: travel
+license: MIT
+repository: https://github.com/Rapter1990/flightsearchapi
+technology:
+  language: java
+  framework: Spring Boot          # 3.4.1
+  database: MongoDB
+
+authentication: proxy
+
+server_errors:
+  similarity_threshold: 0.7
