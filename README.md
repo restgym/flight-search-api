@@ -24,7 +24,7 @@ More details (e.g., how 5XX responses are grouped into unique failures) are in t
 
 | File | Content |
 |---|---|
-| `flightsearchapi.jar` | The executable of the API. |
+| `flightsearchapi.jar` | The executable, built from commit `3de6a55` (2025-02-06) of the original repository, with two classes changed by RESTgym (see below). |
 | `classes/` | The classes measured for code coverage: the classes of the packages of the API, as in the executable. |
 | `specifications/flight-search-openapi.json` | The specification given to the tools (OpenAPI 3.0.1). |
 | `specifications/flight-search.yaml` | The specification given to the tools (OpenAPI 3.0.1). |
@@ -32,22 +32,50 @@ More details (e.g., how 5XX responses are grouped into unique failures) are in t
 | `database/` | `database/init-mongo.js`: the data of the API (5 airports and 6 flights), loaded into MongoDB at each start of the container. |
 | `Dockerfile` | The Docker image of the API, built by RESTgym (`./restgym.sh b`). |
 | `entrypoint.sh` | Starts the API (and the services it needs) in the container. |
-| `auth.py` | Script of the proxy of RESTgym, which authenticates the requests of the tools. |
+| `auth.py` | Script of the proxy of RESTgym, which authenticates the requests of the tools as an administrator, and renews the token before it expires. |
 | `restgym-api-manifest.yaml` | Metadata of the API for RESTgym. |
 
 ## How RESTgym runs it
 
-The image starts from the base image of RESTgym for Java 21 (`restgym/api-base:java21`), which contains the proxy and the collection of code coverage. MongoDB runs in the container, and is initialized with `database/init-mongo.js` at each start. The proxy authenticates the requests of the tools (`auth.py`): it registers a user, logs in, and adds the access token to every request. The tools reach the API through the proxy of RESTgym, on port 9090.
+The image starts from the base image of RESTgym for Java 21 (`restgym/api-base:java21`), which contains the proxy and the collection of code coverage. MongoDB runs in the container, and is initialized with `database/init-mongo.js` at each start. The proxy authenticates the requests of the tools (`auth.py`): it signs in as the administrator that `entrypoint.sh` registers, adds the access token to every request, and signs in again before the token expires. The tools reach the API through the proxy of RESTgym, on port 9090.
 
 ## Changes made by RESTgym
 
 ### API
 
-None.
+**Errors have their real status code, not 401 or 404.** The API hid its errors behind two status codes, so it never failed with 5XX:
+
+- **401**: Spring forwards the errors that no handler of the API answers (e.g., the `NoSuchMethodError` of `GET /v3/api-docs`, paths without an operation such as `DELETE /api/v1/airports/`, unsupported methods, media types and `Accept`) to `/error`, which the security configuration of the API did not permit (`SecurityConfig`: only `/api/v1/authentication/**`, Swagger and `/actuator/**`). The token filter of the API does not run again for `/error`, so the request was not authenticated, and the API answered 401 (`AUTH ERROR`) to any such error.
+- **404**: the handler of the exceptions of the API (`GlobalExceptionHandler`) answered 404 (`API ERROR`) to any `RuntimeException` without a handler of its own: also to the invalid requests that Spring answers with 400 (e.g., `Required request body is missing`, `JSON parse error`, the `ResponseStatusException` of the actuator), and to the errors of the server, such as `NullPointerException` (`Cannot invoke "...CustomPaging.getPageNumber()" because "this.pagination" is null`), `PatternSyntaxException` (`Illegal repetition near index 1`), `rawPassword cannot be null`, or the exceptions of jjwt on tokens that the API does not validate (`Invalid compact JWT string`, `JWT expired`).
+
+RESTgym permitted `/error` in `SecurityConfig`, and changed `GlobalExceptionHandler` to answer 404 only to the exceptions of the API (classes of `com.example.demo`, e.g., `Flight not found!`), and to leave the others to Spring, as if the handler did not exist: 400 for invalid requests, the status of a `ResponseStatusException`, 500 for the rest. The other handlers of the API (e.g., the 400 of validation, 401, 403, the 404 of `AirportNotFoundException`, 409) are unchanged. The changes, in `SecurityConfig.java`:
+
+```java
+                                "/actuator/**",
+                                // RESTgym: the errors are forwarded to /error, which answered 401 to every error (originally not permitted)
+                                "/error"
+```
+
+(instead of `"/actuator/**"`), and in `GlobalExceptionHandler.java`, at the start of `handleRuntimeException`:
+
+```java
+        // RESTgym: 404 only for the exceptions of the API, the others are left to Spring (e.g., 400 for an unreadable
+        // body, 500 for an unexpected error), as if this handler did not exist (originally 404 for every RuntimeException)
+        if (!runtimeException.getClass().getName().startsWith("com.example.demo.")) {
+            throw runtimeException;
+        }
+```
+
+Only `SecurityConfig.class` and `GlobalExceptionHandler.class` changed, in `flightsearchapi.jar` and in `classes/` (2026-10-14): they were compiled with `javac --release 21 --enable-preview -g -parameters` and Lombok 1.18.36 (as by Maven with Spring Boot 3.4.1) against the libraries of the executable, which were not rebuilt. All the classes of the API compiled so from commit `3de6a55` are identical to those of the executable, except `FlightEntity` and its builder, which differ only in the order of their constant pool and in a cast in the `self()` that Lombok generates (differences of compilation, not of code).
+
+The errors that the API leaves to Spring have the message of the exception in their body (`server.error.include-message=always`, in `entrypoint.sh`), as the answers of its handler did: RESTgym groups the 5XX into unique failures by this message (`server_errors` in the manifest). In the runs of October 2026 (in `results/`), with 401 and 404 only:
+
+- the 127,172 responses 401 outside the authentication endpoints are errors: replayed on a sample, about 60% are 406 (e.g., `GET /actuator/prometheus` and `GET /actuator/heapdump` with `Accept: application/json`), the others mostly 404, 405 and 415, and about 1% 500;
+- of the 396,637 responses 404, about 168,000 are invalid requests (400 with this change), and about 44,000 errors of the server (500); the others are real 404 (e.g., of the actuator, or `Airport not found!`).
 
 ### Specification
 
-The API cannot serve its specification as packaged: the springdoc-openapi of the application (2.1.0, as in the `pom.xml` of the original repository since its first commit) is incompatible with its Spring Boot (3.4.1, Spring Framework 6.2; springdoc supports Spring Boot 3.4 since 2.7.0). `GET /v3/api-docs` fails with `NoSuchMethodError: 'void org.springframework.web.method.ControllerAdviceBean.<init>(java.lang.Object)'`, which the security configuration of the API turns into 401: the Swagger UI that the README of the original repository documents (`/swagger-ui/index.html`) loads, but cannot load the specification. The original repository has no specification file.
+The API cannot serve its specification as packaged: the springdoc-openapi of the application (2.1.0, as in the `pom.xml` of the original repository since its first commit) is incompatible with its Spring Boot (3.4.1, Spring Framework 6.2; springdoc supports Spring Boot 3.4 since 2.7.0). `GET /v3/api-docs` fails with `NoSuchMethodError: 'void org.springframework.web.method.ControllerAdviceBean.<init>(java.lang.Object)'` (500; 401 in the original API, see above): the Swagger UI that the README of the original repository documents (`/swagger-ui/index.html`) loads, but cannot load the specification. The original repository has no specification file.
 
 The original specification is therefore `openapi-original.json` (OpenAPI 3.0.1): the specification served at `/v3/api-docs` by `flightsearchapi.jar` with springdoc-openapi 2.7.0 in place of 2.1.0 (and the libraries it requires: swagger-core 2.2.25, swagger-ui 5.18.2, webjars-locator-lite 1.0.1, jspecify 1.0.0, from Maven Central; nothing else changed), saved unchanged from the API running in its RESTgym container (2026-10-13). The executable of the API is not changed: the copy with springdoc 2.7.0 was only used to obtain the specification.
 
@@ -66,22 +94,23 @@ So they were most likely generated by springdoc with the API in its original con
 
 RESTgym handles the authentication of the requests, and the tools are not aware of it: an endpoint that ends or changes the session of RESTgym (e.g., logout, login as another user, change or deletion of the user of the proxy, of its password or of its roles) may make the tools fail for the rest of the run. Such endpoints may be removed from the specifications given to the tools.
 
-The proxy registers `test@example.com` (username `testuser`, password `Password123!`) and signs in once, at the first request, and adds the JWT to every request except those to `/api/v1/authentication/` (`auth.py`); it never signs in again. The endpoints that may end or change its session:
+When the API is ready, before the tools start, `entrypoint.sh` registers the administrator of the proxy (`POST /api/v1/authentication/user/register` with `userType: ADMIN`: email `admin@restgym.example`, password `Password123!`); the container stops if it cannot (RESTgym then runs the run again). The proxy (`auth.py`) signs in as this administrator at the first request, adds its access token to every request except those to `/api/v1/authentication/`, and signs in again 60 seconds before the token expires (the API gives tokens of 30 minutes, `accessTokenExpiresAt` in the answer of the login), so the session lasts for any time budget. As an administrator, the tools can also create, update and delete airports and flights (`POST`, `PUT` and `DELETE` of `/api/v1/airports` and `/api/v1/flights` need the role `ADMIN`; the other operations accept `ADMIN` and `USER`). The proxy does not sign in again after a 401: the tools cannot invalidate the token of the proxy (and, without the change of RESTgym, the API also answered 401 when it failed). The endpoints that may end or change its session:
 
-- `POST /api/v1/authentication/user/logout`: invalidates the access and refresh tokens in its body. The tools never see the token of the proxy (the proxy adds it), so they can only invalidate tokens they obtained themselves; with the token of the proxy, its session would end for the rest of the run.
+- `POST /api/v1/authentication/user/logout`: invalidates the access and refresh tokens in its body. The tools never see the token of the proxy (the proxy adds it), so they can only invalidate tokens they obtained themselves; with the token of the proxy, its requests would get 401 until the proxy signs in again, before the token would have expired (at most 30 minutes).
 - `POST /api/v1/authentication/user/login`, `POST /api/v1/authentication/user/register` and `POST /api/v1/authentication/user/refresh-token`: sign in, register other users and refresh tokens. They create other sessions, and do not end that of the proxy (no run of October 2026, in `results/`, lost it).
 
 ## Known behavior of the API (kept as in the original)
 
 - The specification includes 22 actuator operations (`springdoc.show-actuator: true`, all actuator endpoints exposed), e.g., `POST /actuator/loggers/{name}` and `DELETE /actuator/caches`.
-- `GET /api/v1/airports` requires a request body, and its absence returns 404.
+- `GET /api/v1/airports` requires a request body, and its absence returns 400 (404 without the change of RESTgym), as does a body without `pagination` (500: `NullPointerException`).
+- The API does not validate the tokens in the bodies of `POST /api/v1/authentication/user/logout` and `POST /api/v1/authentication/user/refresh-token`: a malformed, expired or foreign token returns 500 (exceptions of jjwt, e.g., `Invalid compact JWT string`).
+- An error whose answer cannot be written in a media type of `Accept` (e.g., `Accept: application/java-archive` with an invalid id) returns 500 (`HttpMediaTypeNotAcceptableException` while writing the answer of the handler), as in Spring.
 
 ## Known issues
 
-- **The access token is never renewed.** `auth.py` logs in only at the first request, and the token expires after 30 minutes: with longer time budgets, the following requests get 401. To fix in `auth.py`.
-- **The proxy authenticates as a `USER`.** Creating, updating and deleting airports and flights probably requires an `ADMIN`: tools mostly read the data of `database/init-mongo.js`. To decide.
+- Until 2026-10-14, the API answered 401 or 404 to its errors (see [Changes made by RESTgym](#api)): the runs before that date have no 5XX, and are not comparable with the later ones in failures and status codes.
+- Until 2026-10-14, the proxy signed in as a `USER` (`test@example.com`, registered at the first request), so the tools could not create, update or delete airports and flights (403), and it never renewed its token (30 minutes).
 
 ## To verify
 
-- Where `flightsearchapi.jar` was built from, and whether its source was changed.
 - How `flight-search-openapi.json` was generated (most likely by a version of springdoc other than 2.1.0 and 2.7.0, with the API in its original configuration, on port 1133).

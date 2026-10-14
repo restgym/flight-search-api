@@ -1,67 +1,51 @@
-import requests
-import json
+"""
+Flight Search API - Authentication script of the proxy
+Signs in as the administrator registered by entrypoint.sh, adds its access token to every request (except those to the
+authentication endpoints), and signs in again before the token expires (30 minutes). A 401 does not make it sign in
+again: the API also answers 401 when it fails (its errors are forwarded to /error, which Spring Security protects), and
+the tools cannot invalidate the token of the proxy (they never see it)
+"""
 import time
+import requests
+from mitmproxy import ctx
+
+LOGIN_URL = "http://localhost:8080/api/v1/authentication/user/login"
+CREDENTIALS = {"email": "admin@restgym.example", "password": "Password123!"}     # registered by entrypoint.sh
+RENEW_BEFORE_SECONDS = 60       # sign in again this long before the token expires
+RETRY_AFTER_SECONDS = 5         # after a failed sign-in, wait this long before trying again
+
 
 class Authenticate:
+    def __init__(self):
+        self.token = None
+        self.expires_at = 0         # epoch seconds (accessTokenExpiresAt of the API)
+        self.failed_at = 0
 
-    token = None
-
-    def get_token(self):
-        signup_url = "http://localhost:8080/api/v1/authentication/user/register"
-        signin_url = "http://localhost:8080/api/v1/authentication/user/login"
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        }
-
-        signup_payload = {
-            "email": "test@example.com",
-            "password": "Password123!",
-            "firstName": "Test",
-            "lastName": "User",
-            "username": "testuser",
-            "phoneNumber": "12345678903",
-            "userType": "USER"
-        }
-
+    def sign_in(self):
+        """Sign in and keep the access token and its expiration"""
+        if time.time() - self.failed_at < RETRY_AFTER_SECONDS:
+            return
         try:
-            # Usiamo json= invece di data=json.dumps per pulizia
-            r_signup = requests.post(signup_url, headers=headers, json=signup_payload)
+            response = requests.post(LOGIN_URL, json=CREDENTIALS, timeout=30)
+            body = response.json().get("response") or {}
+            self.token = body["accessToken"]
+            self.expires_at = body.get("accessTokenExpiresAt") or time.time() + 30 * 60
+            ctx.log.info(f"[AUTH] Signed in as {CREDENTIALS['email']}: the token expires at {time.ctime(self.expires_at)}")
         except Exception as e:
-            print(f"--- [AUTH] Error: {e}")
-
-        # ATTESA: Molto importante per MongoDB/Spring Boot
-        # Diamo 2 secondi al sistema per salvare l'utente nel DB
-        time.sleep(2)
-
-        signin_payload = {
-            "email": "test@example.com",
-            "password": "Password123!"
-        }
-
-        try:
-            signin_response = requests.post(signin_url, headers=headers, json=signin_payload)
-            print(f"--- [AUTH] Login Status: {signin_response.status_code}")
-            response_data = signin_response.json()
-            
-            # Controllo nidificato della risposta
-            if 'response' in response_data and response_data['response'] and 'accessToken' in response_data['response']:
-                self.token = str(response_data['response']['accessToken'])
-            else:
-                print(f"--- [AUTH] ERRORE: Token token not found. Response: {response_data}")
-        except Exception as e:
-            print(f"--- [AUTH] Error: {e}")
+            self.token = None
+            self.failed_at = time.time()
+            ctx.log.warn(f"[AUTH] Sign-in failed: {e}")
 
     def request(self, flow):
-        # Evitiamo loop: non iniettare il token se stiamo chiamando gli endpoint di auth
+        # The authentication endpoints are left as the tools send them
         if "/api/v1/authentication/" in flow.request.path:
             return
 
-        if self.token is None:
-            self.get_token()
-        
+        if self.token is None or time.time() >= self.expires_at - RENEW_BEFORE_SECONDS:
+            self.sign_in()
+
         if self.token:
             flow.request.headers["Authorization"] = "Bearer " + self.token
+
 
 addons = [Authenticate()]

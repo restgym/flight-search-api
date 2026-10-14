@@ -3,7 +3,7 @@ manifest_version: 1
 
 id: flight-search
 name: Flight Search API
-version: "0.0.1-SNAPSHOT"         # Implementation-Version of flightsearchapi.jar
+version: "0.0.1-SNAPSHOT"         # Implementation-Version of flightsearchapi.jar, with its handling of errors changed by RESTgym (see the README)
 description: Flight search API with management of airports and flights, secured with JWT.
 domain: travel
 license: MIT
@@ -25,3 +25,6 @@ authentication: proxy
 
 server_errors:
   similarity_threshold: 0.7
+  preprocessing:
+    - json_fields: {fields: [message], min_length: 5}     # the body of the 5XX of Spring (server.error.include-message, see the README)
+    - mask: [uuids, timestamps, numbers]                  # e.g., JWT expired 220843480 milliseconds ago at 2026-10-12T00:18:10.000Z

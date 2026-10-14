@@ -13,6 +13,19 @@ if [ -f /api/database/init-mongo.js ]; then
     mongosh flightdatabase /api/database/init-mongo.js || restgym_log "The initialization of MongoDB completed with warnings."
 fi
 
+# The administrator with which the proxy signs in (auth.py), registered before the tools start (so that no tool can
+# register its email first). Without it, every request would get 401: the container stops, and RESTgym runs the run again
+restgym_on_api_ready() {
+    curl -sf -o /dev/null -X POST http://localhost:8080/api/v1/authentication/user/register \
+        -H 'Content-Type: application/json' \
+        -d '{"email": "admin@restgym.example", "password": "Password123!", "firstName": "RESTgym", "lastName": "Admin",
+             "phoneNumber": "12345678903", "userType": "ADMIN"}' \
+        || restgym_fail "The registration of the administrator of the proxy failed."
+    restgym_log "Administrator of the proxy registered."
+}
+
+# server.error.include-message: the errors that the API leaves to Spring (e.g., 500) have the message of the exception
+# in their body, as the answers of its handler of exceptions do (RESTgym groups the 5XX into unique failures by message)
 restgym_run_api 8080 \
     java -javaagent:/infrastructure/jacoco/org.jacoco.agent-0.8.12-runtime.jar=includes=*,output=tcpserver,port=12345,address=* \
         -Dfile.encoding=UTF-8 \
@@ -20,4 +33,5 @@ restgym_run_api 8080 \
         -Dspring.data.mongodb.host=localhost \
         -Dspring.data.mongodb.port=27017 \
         -Dspring.data.mongodb.database=flightdatabase \
+        -Dserver.error.include-message=always \
         -jar /api/flightsearchapi.jar
