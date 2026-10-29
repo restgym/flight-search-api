@@ -1,0 +1,27 @@
+{
+  "validator": {
+    "name": "Swagger Validator (swagger-validator-v2, swagger-parser)",
+    "image": "swaggerapi/swagger-validator-v2:v2.1.9",
+    "endpoint": "POST /validator/debug",
+    "options": "defaults"
+  },
+  "validated_on": "2026-10-29T16:42:15+01:00",
+  "files": {
+    "flight-search-openapi.json": {
+      "messages": [],
+      "schemaValidationMessages": []
+    },
+    "flight-search-openapi.yaml": {
+      "messages": [],
+      "schemaValidationMessages": []
+    },
+    "flight-search-swagger.json": {
+      "messages": [],
+      "schemaValidationMessages": []
+    },
+    "flight-search-swagger.yaml": {
+      "messages": [],
+      "schemaValidationMessages": []
+    }
+  }
+}

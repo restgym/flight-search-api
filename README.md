@@ -31,6 +31,10 @@ More details (e.g., how 5XX responses are grouped into unique failures) are in t
 | `specifications/standardized/flight-search-openapi.yaml` | The same specification in YAML (converted with yq). |
 | `specifications/standardized/flight-search-swagger.json` | The same specification in Swagger 2.0 (converted with hidi). |
 | `specifications/standardized/flight-search-swagger.yaml` | The Swagger 2.0 version in YAML (converted with yq). |
+| `specifications/corrected/flight-search-openapi.json` | The standardized specification with the fixes that make it match the implementation (paging body, required pagination, UUID ids, search dates, email, bearer token, response codes, error bodies and media type). |
+| `specifications/corrected/flight-search-openapi.yaml` | The same specification in YAML (converted with yq). |
+| `specifications/corrected/flight-search-swagger.json` | The same specification in Swagger 2.0 (converted with hidi). |
+| `specifications/corrected/flight-search-swagger.yaml` | The Swagger 2.0 version in YAML (converted with yq). |
 | `specifications/README.md` | Every difference between the specifications, in detail. |
 | `Dockerfile` | The Docker image of the API, built by RESTgym (`./restgym.sh b`). |
 | `entrypoint.sh` | Starts the API (and the services it needs) in the container. |
@@ -87,6 +91,8 @@ The specification given to the tools is `standardized/flight-search-openapi.json
 
 - **`in: header` removed from the security scheme `bearerAuth`** (validation error): it is of type `http`, for which OpenAPI 3.0 allows no `in` (the JWT goes in the `Authorization` header either way).
 - **The 25 operations of Spring Boot Actuator removed** (`/actuator` and the 21 paths under it, e.g., `GET /actuator/health`, `GET /actuator/metrics`, `GET /actuator/heapdump`, `POST /actuator/loggers/{name}`, `DELETE /actuator/caches`; 40 operations in the original, 15 in the standardized specification): they are endpoints of the framework for monitoring and management (the original configuration exposes all of them, `management.endpoints.web.exposure.include: "*"`, and documents them, `springdoc.show-actuator: true`), not operations of the API. With them, the tools would spend a large part of their requests on operations that do not reflect the behavior of the API, and the coverage of the operations would count them. The API still serves them (its configuration is not changed).
+
+The corrected specification, `corrected/flight-search-openapi.json`, is the standardized one with the fixes that make it match the implementation of commit `3de6a55` (found in its code and verified at runtime, 2026-10): the paging request of `GET /api/v1/airports` and `GET /api/v1/flights` as a required request body (not a query parameter), `pagination` and its `pageNumber` and `pageSize` required, `format: uuid` for the path parameter `id`, `format: date` for the dates of the search, `format: email` for the email of the registration, the bearer token required by the 11 operations outside `/api/v1/authentication`, the response codes of `POST /api/v1/flights` (404), `login` (400 and 404, not 401) and `refresh-token` (not 401), the bodies of the error responses (`CustomError`, and Spring's error body for some 400), the values of `httpStatus` (e.g., `OK`, not `200 OK`), and `application/json` as the media type of the responses (not `*/*`). It is not given to the tools by default. Details in `specifications/README.md`.
 
 ### Integration
 
