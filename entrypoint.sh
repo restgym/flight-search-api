@@ -25,7 +25,7 @@ restgym_on_api_ready() {
 # server.error.include-message: the errors that the API leaves to Spring (e.g., 500) have the message of the exception
 # in their body, as the answers of its handler of exceptions do (RESTgym groups the 5XX into unique failures by message)
 restgym_run_api 8080 \
-    java -javaagent:/infrastructure/jacoco/org.jacoco.agent-0.8.12-runtime.jar=includes=*,output=tcpserver,port=12345,address=* \
+    java -javaagent:/infrastructure/jacoco/org.jacoco.agent-0.8.12-runtime.jar=includes=*,output=tcpserver,port=12345,address=127.0.0.1 \
         -Dfile.encoding=UTF-8 \
         -Dserver.port=8080 \
         -Dspring.data.mongodb.host=localhost \
